@@ -1,2 +1,148 @@
+<div style="font-family: system-ui; max-width: 520px;">
+  <h2>Gestos (v2) — Pedra / Paper / Tisores</h2>
 
-<p>Holaa!</p>
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <button id="btnStart" type="button">Start</button>
+    <button id="btnStop" type="button" disabled>Stop</button>
+
+    <label style="display:flex; gap:8px; align-items:center;">
+      Llindar:
+      <input id="threshold" type="number" min="0" max="1" step="0.01" value="0.90" style="width:80px;">
+    </label>
+  </div>
+
+  <p id="status" style="margin:10px 0;">Estat: aturat</p>
+
+  <div id="webcam-container" style="margin-top:10px;"></div>
+
+  <div style="margin-top:10px; padding:10px; border:1px solid #ddd; border-radius:10px;">
+    <div><strong>Gest detectat:</strong> <span id="winner">—</span></div>
+    <div><strong>Confiança:</strong> <span id="winnerProb">—</span></div>
+  </div>
+
+  <div id="label-container" style="margin-top:10px;"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+<script type="text/javascript">
+  const URL = "https://teachablemachine.withgoogle.com/models/NwFIrdtF1/";
+
+  let model, webcam, labelContainer, maxPredictions;
+  let running = false;
+  let rafId = null;
+
+  const statusEl = document.getElementById("status");
+  const winnerEl = document.getElementById("winner");
+  const winnerProbEl = document.getElementById("winnerProb");
+  const thresholdEl = document.getElementById("threshold");
+
+  const btnStart = document.getElementById("btnStart");
+  const btnStop = document.getElementById("btnStop");
+
+  btnStart.addEventListener("click", init);
+  btnStop.addEventListener("click", stop);
+
+  async function init() {
+    if (running) return;
+
+    statusEl.textContent = "Estat: carregant model...";
+    btnStart.disabled = true;
+
+    const modelURL = URL + "model.json";
+    const metadataURL = URL + "metadata.json";
+
+    model = await tmImage.load(modelURL, metadataURL);
+    maxPredictions = model.getTotalClasses();
+
+    const flip = true;
+    webcam = new tmImage.Webcam(240, 240, flip);
+    await webcam.setup();
+    await webcam.play();
+
+    // DOM
+    const wc = document.getElementById("webcam-container");
+    wc.innerHTML = "";
+    wc.appendChild(webcam.canvas);
+
+    labelContainer = document.getElementById("label-container");
+    labelContainer.innerHTML = "";
+    for (let i = 0; i < maxPredictions; i++) {
+      const row = document.createElement("div");
+      row.style.padding = "4px 0";
+      labelContainer.appendChild(row);
+    }
+
+    running = true;
+    btnStop.disabled = false;
+    statusEl.textContent = "Estat: en marxa";
+    loop();
+  }
+
+  function stop() {
+    running = false;
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    statusEl.textContent = "Estat: aturat";
+
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+
+    if (webcam) {
+      webcam.stop(); // atura la càmera
+    }
+
+    winnerEl.textContent = "—";
+    winnerProbEl.textContent = "—";
+    document.body.style.background = "";
+  }
+
+  async function loop() {
+    if (!running) return;
+
+    webcam.update();
+    await predict();
+    rafId = window.requestAnimationFrame(loop);
+  }
+
+  async function predict() {
+    const prediction = await model.predict(webcam.canvas);
+
+    // 1) Escriure totes les prediccions
+    for (let i = 0; i < maxPredictions; i++) {
+      const p = prediction[i];
+      labelContainer.childNodes[i].innerHTML =
+        `${p.className}: ${p.probability.toFixed(2)}`;
+    }
+
+    // 2) Trobar el guanyador
+    let best = prediction[0];
+    for (const p of prediction) {
+      if (p.probability > best.probability) best = p;
+    }
+
+    const threshold = Number(thresholdEl.value || 0);
+
+    // 3) Aplicar llindar + canviar fons
+    if (best.probability >= threshold) {
+      winnerEl.textContent = best.className;
+      winnerProbEl.textContent = best.probability.toFixed(2);
+
+      // Colors simples segons classe
+      if (best.className.toLowerCase().includes("pedra")) {
+        document.body.style.background = "#ffe5e5";
+      } else if (best.className.toLowerCase().includes("paper")) {
+        document.body.style.background = "#e7ffe5";
+      } else if (best.className.toLowerCase().includes("tisores")) {
+        document.body.style.background = "#e5ecff";
+      } else {
+        document.body.style.background = "";
+      }
+    } else {
+      winnerEl.textContent = "Cap (confiança baixa)";
+      winnerProbEl.textContent = best.probability.toFixed(2);
+      document.body.style.background = "";
+    }
+  }
+</script></p>
